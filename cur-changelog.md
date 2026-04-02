@@ -2,6 +2,10 @@
 
 - Added option to show USB speed
 
+- Fixed random crashes some users used to have when exiting the app
+
+- Added support for new NACP revision
+
 # `v1.2.0`
 
 - Updated with latest libnx, supporting (at least) up to firmware 21.1.0

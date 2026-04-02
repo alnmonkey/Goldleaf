@@ -306,6 +306,7 @@ void Finalize() {
         for(auto &it : g_ThreadLogBufferList) {
             delete[] it.second;
         }
+        g_ThreadLogBufferList.clear();
     }
 }
 
