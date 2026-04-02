@@ -22,6 +22,7 @@
 #include <cnt/cnt_Content.hpp>
 #include <cnt/cnt_Names.hpp>
 #include <util/util_String.hpp>
+#include <util/util_Compression.hpp>
 #include <fs/fs_FileSystem.hpp>
 #include <ui/ui_MainApplication.hpp>
 
@@ -50,27 +51,66 @@ namespace cnt {
         constexpr size_t ApplicationContentMetaStatusBufferCount = 100;
         NsApplicationContentMetaStatus g_ApplicationContentMetaStatusBuffer[ApplicationContentMetaStatusBufferCount];
 
-        NsApplicationControlData g_TemporaryApplicationControlData;
+        constexpr size_t NacpTitlesDataFormatOffset = 0x3215;
+        constexpr size_t NacpDecompressedDataSize = 0x6000;
+        constexpr int NacpCompressedDataWbits = -15;
 
-        inline Result GetApplicationControlData(const u64 app_id, NsApplicationControlData &out_data, size_t &out_icon_size) {
+        constexpr size_t LanguageEntryMaxCount = NacpDecompressedDataSize / sizeof(NacpLanguageEntry);
+        static_assert(LanguageEntryMaxCount * sizeof(NacpLanguageEntry) == NacpDecompressedDataSize);
+
+        struct ApplicationControlData {
+            NsApplicationControlData base_data;
+            NacpLanguageEntry processed_lang_entries[LanguageEntryMaxCount];
+        };
+
+        ApplicationControlData g_TemporaryApplicationControlData;
+
+        inline Result GetApplicationControlData(const u64 app_id, ApplicationControlData &out_data, size_t &out_icon_size) {
             size_t got_size;
             Result rc;
             if(hosversionAtLeast(20,0,0)) {
-                rc = nsGetApplicationControlData2(NsApplicationControlSource_Storage, app_id, std::addressof(out_data), sizeof(out_data), 0xFF, 0, &got_size, nullptr);
+                rc = nsGetApplicationControlData2(NsApplicationControlSource_Storage, app_id, &out_data.base_data, sizeof(out_data.base_data), 0xFF, 0, &got_size, nullptr);
             }
             else {
-                rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, app_id, std::addressof(out_data), sizeof(out_data), &got_size);
+                rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, app_id, &out_data.base_data, sizeof(out_data.base_data), &got_size);
             }
             if(R_SUCCEEDED(rc)) {
                 GLEAF_ASSERT_TRUE(got_size <= sizeof(out_data));
                 out_icon_size = got_size - sizeof(NacpStruct);
+
+                const auto raw_nacp_ptr = reinterpret_cast<const u8*>(&out_data.base_data);
+
+                const bool is_title_format1 = raw_nacp_ptr[NacpTitlesDataFormatOffset] == 1;
+                if(is_title_format1) {
+                    const auto compressed_data_size = *reinterpret_cast<const u16*>(raw_nacp_ptr);
+                    const auto compressed_data = raw_nacp_ptr + sizeof(u16);
+
+                    if(!util::ZlibDecompress(reinterpret_cast<u8*>(&out_data.processed_lang_entries), sizeof(out_data.processed_lang_entries), compressed_data, compressed_data_size, NacpCompressedDataWbits)) {
+                        return rc::goldleaf::ResultInvalidNacpFormat1Decompression;
+                    }
+
+                    // Copt the first 16 entries just in case
+                    memcpy(out_data.base_data.nacp.lang, out_data.processed_lang_entries, sizeof(out_data.base_data.nacp));
+                }
+                else {
+                    // Just copy the plaintext lang entries
+                    memcpy(out_data.processed_lang_entries, out_data.base_data.nacp.lang, sizeof(out_data.base_data.nacp));
+                }
             }
             return rc;
         }
 
+        Thread g_LoadApplicationsThread;
+        std::atomic_bool g_LoadApplicationsThreadShouldExit = false;
+        std::atomic_bool g_LoadApplicationsThreadDone = true;
+
         void ScanApplicationRecords() {
             s32 cur_offset = 0;
             while(true) {
+                if(g_LoadApplicationsThreadShouldExit) {
+                    return;
+                }
+
                 s32 record_count = 0;
                 if(R_FAILED(nsListApplicationRecord(reinterpret_cast<NsApplicationRecord*>(g_ApplicationRecordBuffer), ApplicationRecordBufferCount, cur_offset, &record_count))) {
                     break;
@@ -134,10 +174,6 @@ namespace cnt {
             return app_a.cache.display_name.front() < app_b.cache.display_name.front();
         }
 
-        Thread g_LoadApplicationsThread;
-        std::atomic_bool g_LoadApplicationsThreadShouldExit = false;
-        std::atomic_bool g_LoadApplicationsThreadDone = true;
-
         void ScanApplications() {
             ScopedLock lk(g_ApplicationsLock);
             g_Applications.clear();
@@ -164,12 +200,12 @@ namespace cnt {
                 app.cache.display_author = "";
                 size_t dummy;
                 if(R_SUCCEEDED(GetApplicationControlData(app.record.id, g_TemporaryApplicationControlData, dummy))) {
-                    memcpy(app.misc_data.display_version, g_TemporaryApplicationControlData.nacp.display_version, sizeof(g_TemporaryApplicationControlData.nacp.display_version));
-                    app.misc_data.device_save_data_size = g_TemporaryApplicationControlData.nacp.device_save_data_size;
-                    app.misc_data.user_account_save_data_size = g_TemporaryApplicationControlData.nacp.user_account_save_data_size;
+                    memcpy(app.misc_data.display_version, g_TemporaryApplicationControlData.base_data.nacp.display_version, sizeof(g_TemporaryApplicationControlData.base_data.nacp.display_version));
+                    app.misc_data.device_save_data_size = g_TemporaryApplicationControlData.base_data.nacp.device_save_data_size;
+                    app.misc_data.user_account_save_data_size = g_TemporaryApplicationControlData.base_data.nacp.user_account_save_data_size;
 
                     NacpLanguageEntry *lang_entry = nullptr;
-                    if(R_SUCCEEDED(nacpGetLanguageEntry(&g_TemporaryApplicationControlData.nacp, &lang_entry)) && lang_entry != nullptr) {
+                    if(R_SUCCEEDED(nacpGetLanguageEntry(&g_TemporaryApplicationControlData.base_data.nacp, &lang_entry)) && lang_entry != nullptr) {
                         if(lang_entry->name[0] != '\0') {
                             app.cache.display_name = std::string(lang_entry->name);
                         }
@@ -296,7 +332,7 @@ namespace cnt {
 
         if(R_SUCCEEDED(GetApplicationControlData(this->record.id, g_TemporaryApplicationControlData, out_icon_size))) {
             out_icon_data = new u8[out_icon_size];
-            memcpy(out_icon_data, reinterpret_cast<u8*>(g_TemporaryApplicationControlData.icon), out_icon_size);
+            memcpy(out_icon_data, reinterpret_cast<u8*>(g_TemporaryApplicationControlData.base_data.icon), out_icon_size);
             return true;
         }
 

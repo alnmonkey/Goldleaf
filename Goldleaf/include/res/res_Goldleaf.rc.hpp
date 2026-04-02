@@ -13,5 +13,6 @@ namespace goldleaf {
     R_DEFINE_ERROR_RESULT(InvalidNsp, 9);
     R_DEFINE_ERROR_RESULT(InvalidMeta, 10);
     R_DEFINE_ERROR_RESULT(AssertionFailed, 11);
+    R_DEFINE_ERROR_RESULT(InvalidNacpFormat1Decompression, 12);
 
 }

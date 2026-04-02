@@ -169,6 +169,10 @@ enum class LaunchMode {
     Application
 };
 
+// Temporary macros -- we'll use them until libnx gets updated.
+#define SetLanguage_PL          ((SetLanguage)18)
+#define SetLanguage_TH          ((SetLanguage)19)
+
 enum class Language {
     English,
     Spanish,
@@ -185,6 +189,8 @@ enum class Language {
     Taiwanese,
     Russian,
     Korean,
+    Polish,
+    Thai,
 
     Count,
     Auto
@@ -205,7 +211,9 @@ constexpr const char *LanguageNameList[] = {
     "繁體中文",
     "台灣中文",
     "Русский",
-    "한국어"
+    "한국어",
+    "Polski",
+    "แบบไทย"
 };
 constexpr size_t LanguageNameCount = std::size(LanguageNameList);
 
