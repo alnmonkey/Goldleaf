@@ -298,6 +298,8 @@ namespace hos {
         return g_SystemKeyGeneration;
     }
 
+    // https://switchbrew.org/wiki/NCA at Header -> KeyGeneration
+
     std::string GetKeyGenerationRange(const u8 key_gen) {
         const auto pkg1_key_gen = GetPackage1KeyGenerationFromKeyGeneration(key_gen);
         switch(pkg1_key_gen) {
@@ -359,7 +361,13 @@ namespace hos {
                 return "19.0.0 - 19.0.1";
             }
             case Package1KeyGeneration_20_0_0: {
-                return "20.0.0 -";
+                return "20.0.0 - 21.0.0";
+            }
+            case Package1KeyGeneration_21_0_0: {
+                return "21.0.0 - 22.0.0";
+            }
+            case Package1KeyGeneration_22_0_0: {
+                return "22.0.0 -";
             }
             default: {
                 return "<unknown>";

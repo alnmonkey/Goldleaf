@@ -1,10 +1,16 @@
 # Master
 
+- When previewing images, the preview image in the dialog is now scaled if the dimensions are too large
+
 - Added option to show USB speed
 
 - Fixed random crashes some users used to have when exiting the app
 
 - Added support for new NACP revision
+
+- Minor tweak on version reset code
+
+- Updated keygen values
 
 # `v1.2.0`
 
